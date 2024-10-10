@@ -19,6 +19,12 @@
 "   2024 Jul 22 by Vim Project: avoid endless recursion (#15318)
 "   2024 Jul 23 by Vim Project: escape filename before trying to delete it (#15330)
 "   2024 Jul 30 by Vim Project: handle mark-copy to same target directory (#12112)
+"   2024 Aug 02 by Vim Project: honor g:netrw_alt{o,v} for :{S,H,V}explore (#15417)
+"   2024 Aug 15 by Vim Project: style changes, prevent E121 (#15501)
+"   2024 Aug 22 by Vim Project: fix mf-selection highlight (#15551)
+"   2024 Aug 22 by Vim Project: adjust echo output of mx command (#15550)
+"   2024 Sep 15 by Vim Project: more strict confirmation dialog (#15680)
+"   2024 Sep 19 by Vim Project: mf-selection highlight uses wrong pattern (#15700)
 "   }}}
 " Former Maintainer:	Charles E Campbell
 " GetLatestVimScripts: 1075 1 :AutoInstall: netrw.vim
@@ -62,11 +68,6 @@ if exists("s:needspatches")
 endif
 
 let g:loaded_netrw = "v173"
-if !exists("s:NOTE")
- let s:NOTE    = 0
- let s:WARNING = 1
- let s:ERROR   = 2
-endif
 
 let s:keepcpo= &cpo
 setl cpo&vim
@@ -104,7 +105,7 @@ fun! netrw#ErrorMsg(level,msg,errnum)
   endif
 "  call Decho("level=".level,'~'.expand("<slnum>"))
 
-  if g:netrw_use_errorwindow == 2 && (v:version > 802 || (v:version == 802 && has("patch486")))
+  if g:netrw_use_errorwindow == 2 && exists("*popup_atcursor")
    " use popup window
    if type(a:msg) == 3
     let msg = [level]+a:msg
@@ -220,6 +221,11 @@ if !exists("s:LONGLIST")
  call s:NetrwInit("s:MAXLIST" ,4)
 endif
 
+let s:NOTE    = 0
+let s:WARNING = 1
+let s:ERROR   = 2
+call s:NetrwInit("g:netrw_errorlvl", s:NOTE)
+
 " ---------------------------------------------------------------------
 " Default option values: {{{2
 let g:netrw_localcopycmdopt    = ""
@@ -229,7 +235,10 @@ let g:netrw_localmovecmdopt    = ""
 
 " ---------------------------------------------------------------------
 " Default values for netrw's global protocol variables {{{2
-if (v:version > 802 || (v:version == 802 && has("patch486"))) && has("balloon_eval") && !exists("s:initbeval") && !exists("g:netrw_nobeval") && has("syntax") && exists("g:syntax_on") && has("mouse")
+if exists("*popup_atcursor")
+\   && has("syntax")
+\   && exists("g:syntax_on")
+\   && has("mouse")
   call s:NetrwInit("g:netrw_use_errorwindow",2)
 else
   call s:NetrwInit("g:netrw_use_errorwindow",1)
@@ -347,7 +356,6 @@ call s:NetrwInit("s:didstarstar",0)
 call s:NetrwInit("g:netrw_dirhistcnt"      , 0)
 call s:NetrwInit("g:netrw_decompress"       , '{ ".gz" : "gunzip", ".bz2" : "bunzip2", ".zip" : "unzip", ".tar" : "tar -xf", ".xz" : "unxz" }')
 call s:NetrwInit("g:netrw_dirhistmax"       , 10)
-call s:NetrwInit("g:netrw_errorlvl"  , s:NOTE)
 call s:NetrwInit("g:netrw_fastbrowse"       , 1)
 call s:NetrwInit("g:netrw_ftp_browse_reject", '^total\s\+\d\+$\|^Trying\s\+\d\+.*$\|^KERBEROS_V\d rejected\|^Security extensions not\|No such file\|: connect to address [0-9a-fA-F:]*: No route to host$')
 if !exists("g:netrw_ftp_list_cmd")
@@ -718,7 +726,6 @@ fun! netrw#Explore(indx,dosplit,style,...)
   " -or- file has been modified AND file not hidden when abandoned
   " -or- Texplore used
   if a:dosplit || (&modified && &hidden == 0 && &bufhidden != "hide") || a:style == 6
-"   call Decho("case dosplit=".a:dosplit." modified=".&modified." a:style=".a:style.": dosplit or file has been modified",'~'.expand("<slnum>"))
    call s:SaveWinVars()
    let winsz= g:netrw_winsize
    if a:indx > 0
@@ -726,57 +733,41 @@ fun! netrw#Explore(indx,dosplit,style,...)
    endif
 
    if a:style == 0      " Explore, Sexplore
-"    call Decho("style=0: Explore or Sexplore",'~'.expand("<slnum>"))
     let winsz= (winsz > 0)? (winsz*winheight(0))/100 : -winsz
     if winsz == 0|let winsz= ""|endif
-    exe "noswapfile ".winsz."wincmd s"
-"    call Decho("exe noswapfile ".winsz."wincmd s",'~'.expand("<slnum>"))
+    exe "noswapfile ".(g:netrw_alto ? "below " : "above ").winsz."wincmd s"
 
-   elseif a:style == 1  "Explore!, Sexplore!
-"    call Decho("style=1: Explore! or Sexplore!",'~'.expand("<slnum>"))
+   elseif a:style == 1  " Explore!, Sexplore!
     let winsz= (winsz > 0)? (winsz*winwidth(0))/100 : -winsz
     if winsz == 0|let winsz= ""|endif
-    exe "keepalt noswapfile ".winsz."wincmd v"
-"    call Decho("exe keepalt noswapfile ".winsz."wincmd v",'~'.expand("<slnum>"))
+    exe "keepalt noswapfile ".(g:netrw_altv ? "rightbelow " : "leftabove ").winsz."wincmd v"
 
    elseif a:style == 2  " Hexplore
-"    call Decho("style=2: Hexplore",'~'.expand("<slnum>"))
     let winsz= (winsz > 0)? (winsz*winheight(0))/100 : -winsz
     if winsz == 0|let winsz= ""|endif
-    exe "keepalt noswapfile bel ".winsz."wincmd s"
-"    call Decho("exe keepalt noswapfile bel ".winsz."wincmd s",'~'.expand("<slnum>"))
+    exe "keepalt noswapfile ".(g:netrw_alto ? "below " : "above ").winsz."wincmd s"
 
    elseif a:style == 3  " Hexplore!
-"    call Decho("style=3: Hexplore!",'~'.expand("<slnum>"))
     let winsz= (winsz > 0)? (winsz*winheight(0))/100 : -winsz
     if winsz == 0|let winsz= ""|endif
-    exe "keepalt noswapfile abo ".winsz."wincmd s"
-"    call Decho("exe keepalt noswapfile abo ".winsz."wincmd s",'~'.expand("<slnum>"))
+    exe "keepalt noswapfile ".(!g:netrw_alto ? "below " : "above ").winsz."wincmd s"
 
    elseif a:style == 4  " Vexplore
-"    call Decho("style=4: Vexplore",'~'.expand("<slnum>"))
     let winsz= (winsz > 0)? (winsz*winwidth(0))/100 : -winsz
     if winsz == 0|let winsz= ""|endif
-    exe "keepalt noswapfile lefta ".winsz."wincmd v"
-"    call Decho("exe keepalt noswapfile lefta ".winsz."wincmd v",'~'.expand("<slnum>"))
+    exe "keepalt noswapfile ".(g:netrw_altv ? "rightbelow " : "leftabove ").winsz."wincmd v"
 
    elseif a:style == 5  " Vexplore!
-"    call Decho("style=5: Vexplore!",'~'.expand("<slnum>"))
     let winsz= (winsz > 0)? (winsz*winwidth(0))/100 : -winsz
     if winsz == 0|let winsz= ""|endif
-    exe "keepalt noswapfile rightb ".winsz."wincmd v"
-"    call Decho("exe keepalt noswapfile rightb ".winsz."wincmd v",'~'.expand("<slnum>"))
+    exe "keepalt noswapfile ".(!g:netrw_altv ? "rightbelow " : "leftabove ").winsz."wincmd v"
 
    elseif a:style == 6  " Texplore
     call s:SaveBufVars()
-"    call Decho("style  = 6: Texplore",'~'.expand("<slnum>"))
     exe "keepalt tabnew ".fnameescape(curdir)
-"    call Decho("exe keepalt tabnew ".fnameescape(curdir),'~'.expand("<slnum>"))
     call s:RestoreBufVars()
    endif
    call s:RestoreWinVars()
-"  else " Decho
-"   call Decho("case a:dosplit=".a:dosplit." AND modified=".&modified." AND a:style=".a:style." is not 6",'~'.expand("<slnum>"))
   endif
   NetrwKeepj norm! 0
 
@@ -6900,11 +6891,7 @@ fun! s:NetrwMarkFile(islocal,fname)
 
   let ykeep   = @@
   let curbufnr= bufnr("%")
-  if a:fname =~ '^\a'
-   let leader= '\<'
-  else
-   let leader= ''
-  endif
+  let leader= '\%(^\|\s\)\zs'
   if a:fname =~ '\a$'
    let trailer = '\>[@=|\/\*]\=\ze\%(  \|\t\|$\)'
   else
@@ -7513,7 +7500,13 @@ fun! s:NetrwMarkFileExe(islocal,enbloc)
        NetrwKeepj call netrw#ErrorMsg(s:ERROR,"command<".xcmd."> failed, aborting",54)
        break
       else
-       echo ret
+       if ret !=# ''
+        echo "\n"
+        " skip trailing new line
+        echo ret[0:-2]
+       else
+        echo ret
+       endif
       endif
      endfor
 
@@ -11397,7 +11390,7 @@ fun! s:NetrwLocalRm(path) range
     let ok= s:NetrwLocalRmFile(a:path,fname,all)
     if ok =~# 'q\%[uit]' || ok == "no"
      break
-    elseif ok =~# 'a\%[ll]'
+    elseif ok =~# '^a\%[ll]$'
      let all= 1
     endif
    endfor
@@ -11426,7 +11419,7 @@ fun! s:NetrwLocalRm(path) range
     let ok= s:NetrwLocalRmFile(a:path,curword,all)
     if ok =~# 'q\%[uit]' || ok == "no"
      break
-    elseif ok =~# 'a\%[ll]'
+    elseif ok =~# '^a\%[ll]$'
      let all= 1
     endif
     let ctr= ctr + 1
@@ -11473,12 +11466,12 @@ fun! s:NetrwLocalRmFile(path,fname,all)
 "    call Decho("response: ok<".ok.">",'~'.expand("<slnum>"))
     let ok= substitute(ok,'\[{y(es)},n(o),a(ll),q(uit)]\s*','','e')
 "    call Decho("response: ok<".ok."> (after sub)",'~'.expand("<slnum>"))
-    if ok =~# 'a\%[ll]'
+    if ok =~# '^a\%[ll]$'
      let all= 1
     endif
    endif
 
-   if all || ok =~# 'y\%[es]' || ok == ""
+   if all || ok =~# '^y\%[es]$' || ok == ""
     let ret= s:NetrwDelete(rmfile)
 "    call Decho("errcode=".v:shell_error." ret=".ret,'~'.expand("<slnum>"))
    endif
@@ -11494,13 +11487,13 @@ fun! s:NetrwLocalRmFile(path,fname,all)
     if ok == ""
      let ok="no"
     endif
-    if ok =~# 'a\%[ll]'
+    if ok =~# '^a\%[ll]$'
      let all= 1
     endif
    endif
    let rmfile= substitute(rmfile,'[\/]$','','e')
 
-   if all || ok =~# 'y\%[es]' || ok == ""
+   if all || ok =~# '^y\%[es]$' || ok == ""
     if delete(rmfile,"rf")
      call netrw#ErrorMsg(s:ERROR,"unable to delete directory <".rmfile.">!",103)
     endif
@@ -11653,7 +11646,6 @@ fun! s:StripTrailingSlash(path)
    " remove trailing slash
    return substitute(a:path, '[/\\]$', '', 'g')
 endfun
-
 
 " ---------------------------------------------------------------------
 " s:NetrwBadd: adds marked files to buffer list or vice versa {{{2
@@ -12839,54 +12831,3 @@ unlet s:keepcpo
 " Modelines: {{{1
 " ===============
 " vim:ts=8 fdm=marker
-" doing autoload/netrw.vim version v172g ~57
-" varname<g:netrw_dirhistcnt> value=0 ~1
-" varname<s:THINLIST> value=0 ~1
-" varname<s:LONGLIST> value=1 ~1
-" varname<s:WIDELIST> value=2 ~1
-" varname<s:TREELIST> value=3 ~1
-" varname<s:MAXLIST> value=4 ~1
-" varname<g:netrw_use_errorwindow> value=2 ~1
-" varname<g:netrw_http_xcmd> value=-q -O ~1
-" varname<g:netrw_http_put_cmd> value=curl -T ~1
-" varname<g:netrw_keepj> value=keepj ~1
-" varname<g:netrw_rcp_cmd> value=rcp ~1
-" varname<g:netrw_rsync_cmd> value=rsync ~1
-" varname<g:netrw_rsync_sep> value=/ ~1
-" varname<g:netrw_scp_cmd> value=scp -q ~1
-" varname<g:netrw_sftp_cmd> value=sftp ~1
-" varname<g:netrw_ssh_cmd> value=ssh ~1
-" varname<g:netrw_alto> value=0 ~1
-" varname<g:netrw_altv> value=1 ~1
-" varname<g:netrw_banner> value=1 ~1
-" varname<g:netrw_browse_split> value=0 ~1
-" varname<g:netrw_bufsettings> value=noma nomod nonu nobl nowrap ro nornu ~1
-" varname<g:netrw_chgwin> value=-1 ~1
-" varname<g:netrw_clipboard> value=1 ~1
-" varname<g:netrw_compress> value=gzip ~1
-" varname<g:netrw_ctags> value=ctags ~1
-" varname<g:netrw_cursor> value=2 ~1
-" (netrw) COMBAK: cuc=0 cul=0 initialization of s:netrw_cu[cl]
-" varname<g:netrw_cygdrive> value=/cygdrive ~1
-" varname<s:didstarstar> value=0 ~1
-" varname<g:netrw_dirhistcnt> value=0 ~1
-" varname<g:netrw_decompress> value={ ".gz" : "gunzip", ".bz2" : "bunzip2", ".zip" : "unzip", ".tar" : "tar -xf", ".xz" : "unxz" } ~1
-" varname<g:netrw_dirhistmax> value=10 ~1
-" varname<g:netrw_errorlvl> value=0 ~1
-" varname<g:netrw_fastbrowse> value=1 ~1
-" varname<g:netrw_ftp_browse_reject> value=^total\s\+\d\+$\|^Trying\s\+\d\+.*$\|^KERBEROS_V\d rejected\|^Security extensions not\|No such file\|: connect to address [0-9a-fA-F:]*: No route to host$ ~1
-" varname<g:netrw_ftpmode> value=binary ~1
-" varname<g:netrw_hide> value=1 ~1
-" varname<g:netrw_keepdir> value=1 ~1
-" varname<g:netrw_list_hide> value= ~1
-" varname<g:netrw_localmkdir> value=mkdir ~1
-" varname<g:netrw_remote_mkdir> value=mkdir ~1
-" varname<g:netrw_liststyle> value=0 ~1
-" varname<g:netrw_markfileesc> value=*./[\~ ~1
-" varname<g:netrw_maxfilenamelen> value=32 ~1
-" varname<g:netrw_menu> value=1 ~1
-" varname<g:netrw_mkdir_cmd> value=ssh USEPORT HOSTNAME mkdir ~1
-" varname<g:netrw_mousemaps> value=1 ~1
-" varname<g:netrw_retmap> value=0 ~1
-" varname<g:netrw_chgperm> value=chmod PERM FILENAME ~1
-" varname<g:netrw_preview> value=0 ~1
